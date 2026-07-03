@@ -4,7 +4,16 @@
 
 ---
 
-## 通用调用模板（curl）
+## 通用调用模板
+
+**推荐**：使用 `scripts/call_llm.py` 封装：
+```bash
+python ../scripts/call_llm.py \
+  --endpoint "$LLM_ENDPOINT" --model qwen-plus --api-key-env DASHSCOPE_API_KEY \
+  --system "SYSTEM_PROMPT" --user "OUTLINE_HERE" --output plan.json
+```
+
+**手动 curl**（调试用）：
 
 ```bash
 curl -X POST "$LLM_ENDPOINT/chat/completions" \
@@ -16,12 +25,13 @@ curl -X POST "$LLM_ENDPOINT/chat/completions" \
       { "role": "system", "content": "SYSTEM_PROMPT_HERE" },
       { "role": "user", "content": "OUTLINE_HERE" }
     ],
-    "stream": true,
+    "response_format": { "type": "json_object" },
+    "stream": false,
     "max_tokens": 8192
   }'
 ```
 
-**stream 处理**：响应是 SSE 流，每行 `data: {"choices":[{"delta":{"content":"..."}}]}`，拼到 `[DONE]` 结束。
+**关键**：`response_format: { "type": "json_object" }` 强制 LLM 输出合法 JSON（DashScope / OpenAI 都支持）。`stream: false` 避免 SSE 解析复杂度——结构化输出不需要流式。如果必须用 stream，剥掉 markdown fence（` ```json ... ``` `）后再 JSON.parse。
 
 ---
 
@@ -43,11 +53,14 @@ CRITICAL LANGUAGE RULE: You MUST detect the language of the user's outline and r
 {existing_chars_section}
 
 Requirements:
-1. Identify chapters/scenes, estimate line count per chapter (be generous — aim for 15-30+ lines per chapter for rich dialogue), list involved characters, describe mood
+1. Identify chapters/scenes, estimate line count per chapter, list involved characters, describe mood
 2. Extract all characters with their roles (protagonist, antagonist, narrator, etc.)
 3. Check if characters match existing project characters
 4. Summarize overall style
 5. Provide character configuration notes
+6. If the outline is very short (< 100 characters), generate only 1 scene with 5-10 lines
+7. Each chapter MUST have 15-30 lines for rich outlines, but cap at 30 lines per chapter
+8. Total lines across all chapters MUST NOT exceed 100 unless explicitly requested
 
 Return ONLY valid JSON (no markdown fences):
 {"chapters":[{"title":"...","estimated_lines":20,"characters":["..."],"mood":"..."}],"suggested_characters":[{"name":"...","role":"...","matched_existing":false,"existing_id":null}],"overall_style":"...","character_notes":"..."}
@@ -121,7 +134,9 @@ Rules:
 5. Keep the script flowing and immersive
 6. Each line MUST be ≤ 180 Chinese characters (to fit TTS limits)
 7. Use the "instructions" field to convey emotion (e.g. "温柔地", "愤怒", "低语")
-8. Aim for 15-30 lines per chapter to ensure rich dialogue
+8. Each section should have 10-30 lines
+9. Total lines across ALL sections MUST NOT exceed 80
+10. Each line MUST have a unique "id" field in format: "{section_id}_line_{N}" (e.g. "sec_1_line_1")
 
 Return ONLY valid JSON (no markdown fences):
 {"sections":[{"title":"第一章","lines":[{"text":"对白内容","character":"角色名","gap_after_ms":500,"instructions":"温柔地"}]}],"narration_style":"descriptive"}

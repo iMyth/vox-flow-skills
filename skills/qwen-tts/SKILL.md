@@ -21,6 +21,20 @@ Bearer token，从 https://dashscope.console.aliyun.com/ 申请 API Key。
 export DASHSCOPE_API_KEY="sk-xxxxxxxxxxxx"
 ```
 
+### macOS Python SSL 证书
+
+macOS 自带的 Python 缺少 CA 证书，WebSocket 连接会报 `CERTIFICATE_VERIFY_FAILED`。解决：
+
+```bash
+SSL_CERT_FILE=$(python3 -c "import certifi; print(certifi.where())") python3 tts_script.py
+```
+
+或一劳永逸地安装 certifi 的证书包：
+
+```bash
+/Applications/Python\ 3.x/Install\ Certificates.command
+```
+
 ---
 
 ## WebSocket 协议
@@ -50,17 +64,21 @@ Authorization: Bearer $DASHSCOPE_API_KEY
   ◄── session.created ─────────────
   ◄── session.updated ─────────────
   ─── input_text_buffer.append ────►  (可发多次)
-  ─── input_text_buffer.append ────►
-  ─── session.finish ──────────────►
-  ◄── response.created ────────────
+  ─── input_text_buffer.append ───►
+  ── session.finish ────────────►
+  ◄── response.created ───────────
+  ── response.output_item.added ──
+  ◄── response.content_part.added ──
   ◄── response.audio.delta ────────  (base64, 多次)
-  ◄── response.audio.delta ────────
+  ── response.audio.delta ────────
   ◄── response.audio.done ─────────
-  ◄── response.done ───────────────
-  ◄── session.finished ────────────
+  ── response.content_part.done ──
+  ── response.output_item.done ───
+  ── response.done ──────────────
+  ── session.finished ───────────
 ```
 
-**关键**：音频在 `response.audio.delta` 里，base64 编码。收到 `session.finished` 表示全部完成。
+**关键**：音频在 `response.audio.delta` 里，base64 编码。收到 `session.finished` 表示全部完成。中间的 `response.output_item.added` / `response.content_part.*` / `response.output_item.done` 等事件可以安全忽略。
 
 ---
 
@@ -129,7 +147,7 @@ Authorization: Bearer $DASHSCOPE_API_KEY
 ## Python 完整示例
 
 ```python
-import asyncio, base64, json, os, websockets
+import asyncio, base64, json, os, ssl, certifi, websockets
 
 API_KEY = os.environ["DASHSCOPE_API_KEY"]
 MODEL = "qwen3-tts-instruct-flash-realtime"
@@ -139,7 +157,7 @@ async def synthesize(texts: list[str], output: str, instructions: str = ""):
     url = f"wss://dashscope.aliyuncs.com/api-ws/v1/realtime?model={MODEL}"
     headers = {"Authorization": f"Bearer {API_KEY}"}
 
-    async with websockets.connect(url, additional_headers=headers) as ws:
+    async with websockets.connect(url, additional_headers=headers, ssl=ssl.create_default_context(cafile=certifi.where())) as ws:
         # session.update
         session = {
             "mode": "server_commit",
@@ -151,11 +169,24 @@ async def synthesize(texts: list[str], output: str, instructions: str = ""):
             session["instructions"] = instructions
             session["optimize_instructions"] = True
         await ws.send(json.dumps({"type": "session.update", "session": session}))
-        await ws.recv()  # session.created
 
-        # send texts
+        # 服务端返回 session.created + session.updated，全部消耗后退出
+        # 超时说明握手完成，服务端在等我们发文本
+        for _ in range(5):
+            try:
+                msg = await asyncio.wait_for(ws.recv(), timeout=10)
+                data = json.loads(msg)
+                if data["type"] in ("session.created", "session.updated"):
+                    continue
+                break
+            except asyncio.TimeoutError:
+                break
+
+        # send texts（握手后加小延迟，避免服务端来不及接收）
+        await asyncio.sleep(0.3)
         for t in texts:
             await ws.send(json.dumps({"type": "input_text_buffer.append", "text": t}))
+        await asyncio.sleep(0.2)
         await ws.send(json.dumps({"type": "session.finish"}))
 
         # collect audio
@@ -219,4 +250,4 @@ asyncio.run(synthesize(
 - **用 `websockets`（Python）或 `ws`（Node）**：成熟库，不要自己实现握手
 - **永远 retry 3 次**：网络偶尔失败，加指数退避
 - **base64 拼完再写文件**：收到 `response.audio.delta` 就 `extend`，等 `session.finished` 再写
-- **macOS Python SSL**：可能需要 `SSL_CERT_FILE=$(python3 -c "import certifi; print(certifi.where())")`
+- **macOS Python SSL**：见上方「macOS Python SSL 证书」小节，运行时需要设置 `SSL_CERT_FILE` 环境变量

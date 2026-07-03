@@ -224,11 +224,14 @@ LLM 经常把 clip 的 `data-start` / `data-duration` 写错。
 ## 渲染命令
 
 ```bash
-# 单段
-npx hyperframes render section-1.html section-1.mp4
+# 在 video/ 目录下执行
+cd video
+npx hyperframes render . -c section-1.html -o section-1.mp4
 
 # 渲染失败时：检查字体错误，跑 font 清洗后重试
 ```
+
+快速起步可复制 `assets/video-starter.html` 作为模板。
 
 渲染器用 headless Chrome 抓帧，30fps。
 
