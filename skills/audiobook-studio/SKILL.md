@@ -117,7 +117,7 @@ mkdir -p my-audiobook/audio/lines my-audiobook/video
 
 ### Step 5 — TTS 合成（委托 qwen-tts skill）
 
-按 [qwen-tts skill](../qwen-tts/SKILL.md) 的 WebSocket Realtime 协议，逐行合成：
+按 [qwen-tts skill](../qwen-tts/SKILL.md) 的 Qwen-TTS Realtime WebSocket 协议，逐行合成：
 
 ```
 for line in script.json 的每一行:

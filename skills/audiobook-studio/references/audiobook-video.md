@@ -109,8 +109,10 @@ clip 的 data-duration = 条目的 duration（秒）
 
 ### 必须
 
-- 根元素 `data-duration="{TOTAL_DURATION}"`
-- `composition-id="ai-generated"`，尺寸 `1920x1080`
+- 根元素属性：
+  - `data-composition-id="ai-generated"`
+  - `data-duration="{TOTAL_DURATION}"`（音频真实时长，ffprobe 测出）
+  - `data-width="1920"` `data-height="1080"`（**必须**，否则 hyperframes 默认竖屏）
 - GSAP timeline 必须 `paused: true`
 - **同步注册** `window.__timelines['ai-generated'] = tl;`（不能放在 setTimeout / async / Promise 里）
 - 所有 GSAP 代码在 `</body>` 前的 `<script>` 中**同步执行**
