@@ -2,11 +2,11 @@
 """
 有声书项目预检脚本
 检查：
-  1. 外部依赖（ffmpeg, node, npx, python3 + websockets）
-  2. API Key 环境变量
+  1. 外部依赖（ffmpeg, ffprobe, node, npx, python3 + websockets）
+  2. DashScope API Key 环境变量
   3. 项目目录结构
   4. project.json 合法性
-  5. LLM endpoint 连通性（可选）
+  5. macOS SSL 证书
 
 用法:
   python preflight.py --project-dir my-audiobook
@@ -17,7 +17,6 @@ import argparse
 import json
 import os
 import shutil
-import subprocess
 import sys
 
 
@@ -35,7 +34,7 @@ def check_project_dir(base: str) -> list[str]:
     """检查项目目录结构。"""
     issues = []
     required_dirs = ["audio/lines", "video"]
-    required_files = ["project.json", "outline.txt"]
+    required_files = ["project.json", "article.txt"]
 
     for d in required_dirs:
         path = os.path.join(base, d)
@@ -63,73 +62,24 @@ def check_project_json(base: str) -> list[str]:
     except json.JSONDecodeError as e:
         return [f"project.json 不是合法 JSON: {e}"]
 
-    required = ["id", "name", "language", "llm", "tts_default"]
+    required = ["id", "name", "language", "tts_default"]
     for field in required:
         if field not in proj:
             issues.append(f"project.json 缺少字段: {field}")
-
-    if "llm" in proj:
-        llm = proj["llm"]
-        if "endpoint" not in llm:
-            issues.append("project.json.llm 缺少 endpoint")
-        if "model" not in llm:
-            issues.append("project.json.llm 缺少 model")
 
     if "tts_default" in proj:
         tts = proj["tts_default"]
         if "voice" not in tts:
             issues.append("project.json.tts_default 缺少 voice")
+        if "model" not in tts:
+            issues.append("project.json.tts_default 缺少 model")
 
     return issues
-
-
-def test_llm_endpoint(endpoint: str, api_key_env: str, model: str) -> bool:
-    """测试 LLM endpoint 连通性。"""
-    api_key = os.environ.get(api_key_env, "")
-    if not api_key:
-        print(f"  [SKIP] 环境变量 {api_key_env} 未设置，跳过 LLM 测试")
-        return True
-
-    try:
-        import urllib.request
-        import urllib.error
-        import ssl
-
-        # macOS: 使用 certifi 的 CA 证书
-        try:
-            import certifi
-            ctx = ssl.create_default_context(cafile=certifi.where())
-        except ImportError:
-            ctx = None
-
-        data = json.dumps({
-            "model": model,
-            "messages": [{"role": "user", "content": "hi"}],
-            "max_tokens": 5,
-        }).encode()
-
-        req = urllib.request.Request(
-            f"{endpoint}/chat/completions",
-            data=data,
-            headers={
-                "Content-Type": "application/json",
-                "Authorization": f"Bearer {api_key}",
-            },
-        )
-        resp = urllib.request.urlopen(req, timeout=10, context=ctx)
-        if resp.status == 200:
-            return True
-    except Exception as e:
-        print(f"  [FAIL] LLM 连通性测试失败: {e}")
-        return False
-
-    return True
 
 
 def main():
     parser = argparse.ArgumentParser(description="有声书项目预检")
     parser.add_argument("--project-dir", help="项目目录（可选）")
-    parser.add_argument("--skip-llm-test", action="store_true", help="跳过 LLM 连通性测试")
     args = parser.parse_args()
 
     all_ok = True
@@ -161,10 +111,23 @@ def main():
         all_ok = False
         checks.append("缺少 Python 包: websockets")
 
+    # LLM 模式依赖（可选）
+    print("\n=== LLM 模式依赖（可选，--llm 时需要）===")
+    llm_deps = [
+        ("openai", "LLM 调用（DashScope OpenAI 兼容）"),
+        ("dashscope", "DashScope SDK"),
+    ]
+    for pkg, desc in llm_deps:
+        try:
+            __import__(pkg)
+            print(f"  ✓ {pkg} ({desc})")
+        except ImportError:
+            print(f"   {pkg} ({desc}) — pip install {pkg}")
+
     # 2. API Key
     print("\n=== 环境变量检查 ===")
     env_vars = [
-        ("DASHSCOPE_API_KEY", "DashScope TTS / LLM"),
+        ("DASHSCOPE_API_KEY", "DashScope TTS"),
     ]
     for var, desc in env_vars:
         ok = check_env_var(var)
@@ -193,27 +156,6 @@ def main():
             all_ok = False
         if not issues:
             print("  ✓ 项目结构正常")
-
-        # 5. LLM 连通性
-        if not args.skip_llm_test:
-            proj_path = os.path.join(args.project_dir, "project.json")
-            if os.path.exists(proj_path):
-                with open(proj_path) as f:
-                    proj = json.load(f)
-                llm = proj.get("llm", {})
-                endpoint = llm.get("endpoint", "")
-                model = llm.get("model", "qwen-plus")
-                api_key_env = llm.get("api_key_env", "DASHSCOPE_API_KEY")
-
-                if endpoint:
-                    print(f"\n=== LLM 连通性测试 ===")
-                    print(f"  endpoint: {endpoint}")
-                    print(f"  model: {model}")
-                    ok = test_llm_endpoint(endpoint, api_key_env, model)
-                    if ok:
-                        print("  ✓ LLM 连通")
-                    else:
-                        all_ok = False
 
     print()
     if all_ok:
