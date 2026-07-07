@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
 """
 有声书音频装配脚本
-读取 script.json + characters.json，自动完成 Step 5-6：
+读取 script.json + characters.json，自动完成音频装配：
   - 按 script.json 的行顺序拼接音频
   - 在行间插入 gap_after_ms 时长的静音
   - 按 section 合并为 section-N.mp3
   - 最终合并为 audio/final.mp3
+  - 对 final.mp3 做 EBU R128 响度归一化 → final_normalized.mp3
 
 用法:
   python assemble_audio.py --project-dir my-audiobook
@@ -96,6 +97,54 @@ def assemble_all(section_outputs: list[str], final_output: str):
     print(f"✓ {final_output} ({dur:.1f}s, 总时长)")
 
 
+def loudness_normalize(input_path: str, output_path: str, target_lufs: float = -23, 
+                       true_peak: float = -2, lra: float = 7):
+    """
+    EBU R128 响度归一化。
+    - I (integrated loudness): 整体响度，默认 -23 LUFS
+    - TP (true peak): 真实峰值，默认 -2 dB
+    - LRA (loudness range): 响度范围，默认 7 LU（压缩动态差异）
+    """
+    print(f"→ 响度归一化: I={target_lufs} LUFS, TP={true_peak} dB, LRA={lra} LU")
+    
+    # 第一步：分析
+    result = subprocess.run(
+        ["ffmpeg", "-i", input_path, 
+         "-af", f"loudnorm=I={target_lufs}:TP={true_peak}:LRA={lra}:print_format=json",
+         "-f", "null", "-"],
+        capture_output=True,
+        text=True
+    )
+    
+    # 从 stderr 提取 JSON
+    import re
+    json_match = re.search(r'\{[^}]*"input_i"[^}]*\}', result.stderr, re.DOTALL)
+    if not json_match:
+        print("[WARN] 响度分析失败，跳过归一化", file=sys.stderr)
+        return False
+    
+    measured = json.loads(json_match.group())
+    print(f"  测量值: I={measured.get('input_i')} LUFS, TP={measured.get('input_tp')} dB, LRA={measured.get('input_lra')} LU")
+    
+    # 第二步：应用
+    run_ffmpeg([
+        "-i", input_path,
+        "-af", f"loudnorm=I={target_lufs}:TP={true_peak}:LRA={lra}" +
+               f":measured_I={measured['input_i']}" +
+               f":measured_TP={measured['input_tp']}" +
+               f":measured_LRA={measured['input_lra']}" +
+               f":measured_thresh={measured['input_thresh']}" +
+               f":offset={measured.get('target_offset', '0')}" +
+               f":linear=true:print_format=summary",
+        "-ar", "48000",
+        output_path
+    ])
+    
+    dur = get_duration(output_path)
+    print(f"✓ {output_path} ({dur:.1f}s, 归一化版本)")
+    return True
+
+
 def main():
     parser = argparse.ArgumentParser(description="有声书音频装配")
     parser.add_argument("--project-dir", help="项目目录（自动查找 script.json / characters.json）")
@@ -104,6 +153,7 @@ def main():
     parser.add_argument("--audio-dir", default="audio/lines", help="TTS 音频文件目录")
     parser.add_argument("--output", default="audio/final.mp3", help="最终输出路径")
     parser.add_argument("--sample-rate", type=int, default=24000, help="采样率")
+    parser.add_argument("--no-normalize", action="store_true", help="跳过响度归一化")
     args = parser.parse_args()
 
     # 如果指定了 project-dir，调整所有路径
@@ -154,6 +204,13 @@ def main():
     else:
         print("[ERROR] 没有 section 需要处理", file=sys.stderr)
         sys.exit(1)
+
+    # 响度归一化
+    if not args.no_normalize:
+        normalized_output = args.output.replace(".mp3", "_normalized.mp3")
+        loudness_normalize(args.output, normalized_output)
+    else:
+        print("→ 跳过响度归一化（--no-normalize）")
 
 
 if __name__ == "__main__":
