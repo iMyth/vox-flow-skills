@@ -2,11 +2,11 @@
 name: audiobook-studio
 description: 文章/散文/小说转有声书或配音视频——直接拆分成品文章，TTS 合成，可选视频伴奏。当用户想把一篇文章变成音频/视频，或提到 "有声书"、"朗读"、"配音"、"文章转音频"、"散文朗读" 时触发。
 license: MIT
-compatibility: Requires the `hyperframes` skill (`npx skills add github.com/heygen-com/hyperframes`), the `qwen-tts` skill (bundled in this repo), ffmpeg, and a DashScope API key (https://dashscope.console.aliyun.com/).
+compatibility: Requires the `hyperframes` skill (`npx skills add github.com/heygen-com/hyperframes`), the `qwen-tts` skill (`npx skills add github.com/imyth/qwen-tts`), ffmpeg, and a DashScope API key (https://dashscope.console.aliyun.com/).
 metadata:
   author: imyth
   version: "2.0"
-  depends-on: "hyperframes, qwen-tts"
+  depends-on: "hyperframes, github.com/imyth/qwen-tts"
   repository: "github.com/imyth/vox-flow-skills"
 ---
 
@@ -18,7 +18,7 @@ metadata:
 
 ## 依赖
 
-- **`qwen-tts` skill** — 阿里云百炼 Qwen TTS API（语音合成）
+- **`qwen-tts` skill** — 阿里云百炼 Qwen TTS API（语音合成），独立仓库：`npx skills add github.com/imyth/qwen-tts`
 - **`hyperframes` skill** — HTML→视频渲染（视频伴奏，可选）
 - **ffmpeg** — 音频拼接、响度归一化、音视频合成
 - **DashScope API Key** — TTS 必需
@@ -32,7 +32,7 @@ metadata:
 开始前必须确认：
 
 1. **文章文件**（文本文件或粘贴）
-2. **音色偏好**——**必须问**，参考 `qwen-tts` skill 的 [voices.md](../qwen-tts/references/voices.md)：
+2. **音色偏好**——**必须问**，参考 `qwen-tts` skill 的音色列表（`npx skills add github.com/imyth/qwen-tts` 后查看 `references/voices.md`）：
    - 男声 / 女声？
    - 风格：沉稳睿智（Eldric Sage）/ 温柔催眠（Kai）/ 率性帅气（Moon）/ 知性温柔（Maia）/ 阳光亲切（Cherry）？
    - 或直接让用户从音色表里挑
@@ -132,7 +132,7 @@ python scripts/split_article.py \
 
 ### Step 3 — TTS 合成（委托 qwen-tts skill）
 
-按 [qwen-tts skill](../qwen-tts/SKILL.md) 的 WebSocket 协议，**顺序逐行合成**：
+按 `qwen-tts` skill 的 WebSocket 协议（见 `github.com/imyth/qwen-tts`），**顺序逐行合成**：
 
 ```
 for line in script.json 的每一行（顺序执行，不并行）:
